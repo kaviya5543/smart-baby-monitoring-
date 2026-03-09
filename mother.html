@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Mother Alert Panel</title>
+
+<style>
+
+body{
+font-family:'Segoe UI',sans-serif;
+background:#e2f3e2;
+text-align:center;
+margin:0;
+padding:20px;
+}
+
+h1{color:#2e6b2e;}
+
+#login-box{
+background:white;
+padding:30px;
+border-radius:20px;
+display:inline-block;
+box-shadow:0 10px 25px rgba(0,0,0,0.1);
+margin-top:50px;
+}
+
+.alert-card{
+background:white;
+width:90%;
+max-width:400px;
+padding:20px;
+border-radius:20px;
+margin:15px auto;
+box-shadow:0 4px 15px rgba(0,0,0,0.05);
+}
+
+.btn{
+padding:10px 20px;
+border-radius:25px;
+border:none;
+color:white;
+font-weight:bold;
+cursor:pointer;
+margin:5px;
+}
+
+.back-btn{background:#5cb85c;}
+.history-btn{background:#70ad70;}
+.logout-btn{background:#d9534f;}
+
+#monitor-ui{display:none;}
+#history-panel{display:none;margin-top:20px;border-top:2px solid #70ad70;padding-top:20px;}
+
+video{
+margin-top:20px;
+border-radius:15px;
+border:4px solid #2e6b2e;
+background:black;
+}
+
+input{
+padding:10px;
+font-size:1.5rem;
+width:200px;
+text-align:center;
+border-radius:10px;
+border:2px solid #ddd;
+margin-bottom:20px;
+}
+
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="login-box">
+
+<h2>🔒 Secure Connection</h2>
+<p>Enter 6-digit code from Baby Monitor</p>
+
+<input type="text" id="passInput" maxlength="6" placeholder="000000">
+
+<br>
+
+<button class="btn back-btn" onclick="checkAccess()">Connect to Baby</button>
+
+</div>
+
+
+<!-- MAIN UI -->
+<div id="monitor-ui">
+
+<h1>👶 Mother Alert Panel</h1>
+
+<button class="btn back-btn" onclick="location.href='index.html'">⬅ Back</button>
+
+<button class="btn history-btn" id="toggleBtn" onclick="toggleHistory()">📜 Show History</button>
+
+<button class="btn logout-btn" onclick="location.reload()">Logout</button>
+
+
+<div id="current-status">
+
+<h3>Current Status</h3>
+<div id="live-alert">Waiting for alerts...</div>
+
+</div>
+
+
+<h2>Live Baby Feed</h2>
+
+<video id="remoteVideo" autoplay playsinline width="500"></video>
+
+
+<div id="history-panel">
+
+<h3>Alert History</h3>
+
+<button class="btn logout-btn" onclick="clearHistory()">🗑 Clear History</button>
+
+<div id="history-list"></div>
+
+</div>
+
+</div>
+
+
+
+<script src="/socket.io/socket.io.js"></script>
+
+<script type="module">
+
+/* ---------------- FIREBASE ---------------- */
+
+import { initializeApp,getApps }
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+import {
+getFirestore,
+doc,
+getDoc,
+onSnapshot,
+collection,
+query,
+orderBy,
+getDocs,
+deleteDoc
+}
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+
+const firebaseConfig = {
+
+apiKey:"AIzaSyAYM35wffavu5oLMMeVTw3Pba5fpFJt86I",
+authDomain:"smart-baby-monitoring-21f6e.firebaseapp.com",
+projectId:"smart-baby-monitoring-21f6e",
+storageBucket:"smart-baby-monitoring-21f6e.firebasestorage.app",
+messagingSenderId:"547380042910",
+appId:"1:547380042910:web:2731ee41a6c8bb4332ef8f"
+
+};
+
+
+const app =
+getApps().length===0
+? initializeApp(firebaseConfig)
+: getApps()[0];
+
+const db = getFirestore(app);
+
+
+/* ---------------- SOCKET ---------------- */
+
+const socket = io();
+
+socket.on("cry-reason", data => {
+    const liveDiv = document.getElementById("live-alert");
+    liveDiv.innerHTML = `<b>🚨 Baby is ${data.label}!</b> <br>
+                         <small>Confidence: ${(data.probability*100).toFixed(1)}%</small>`;
+});
+
+let peer;
+let accessCode="";
+
+
+/* ---------------- LOGIN ---------------- */
+
+window.checkAccess = async function(){
+
+const userInput =
+document.getElementById("passInput").value;
+
+const snap =
+await getDoc(doc(db,"sessions","current"));
+
+if(snap.exists() && snap.data().code===userInput){
+
+accessCode = userInput;
+
+document.getElementById("login-box").style.display="none";
+document.getElementById("monitor-ui").style.display="block";
+
+startAlerts();
+startStream();
+
+socket.on("cry-reason", data => {
+    document.getElementById("live-alert").innerHTML = `
+        <b>🚨 Baby is ${data.label}!</b><br>
+        <small>Confidence: ${(data.probability*100).toFixed(1)}%</small>
+    `;
+});
+
+}
+
+else{
+alert("Incorrect code!");
+}
+
+};
+
+
+
+/* ---------------- WEBRTC STREAM ---------------- */
+
+function startStream(){
+
+socket.emit("join-room",accessCode);
+
+peer = new RTCPeerConnection({
+
+iceServers:[
+{urls:"stun:stun.l.google.com:19302"}
+]
+
+});
+
+peer.ontrack = e=>{
+document.getElementById("remoteVideo").srcObject = e.streams[0];
+};
+
+peer.onicecandidate = e=>{
+if(e.candidate){
+socket.emit("ice-candidate",{code:accessCode,candidate:e.candidate});
+}
+};
+
+
+socket.on("offer",async offer=>{
+
+await peer.setRemoteDescription(offer);
+
+const answer = await peer.createAnswer();
+
+await peer.setLocalDescription(answer);
+
+socket.emit("answer",{code:accessCode,answer:answer});
+
+});
+
+
+socket.on("ice-candidate",async candidate=>{
+await peer.addIceCandidate(candidate);
+});
+
+}
+
+
+
+/* ---------------- ALERT LISTENER ---------------- */
+
+function startAlerts(){
+
+const q =
+query(collection(db,"alerts"),orderBy("time","desc"));
+
+onSnapshot(q,(snapshot)=>{
+
+const liveDiv =
+document.getElementById("live-alert");
+
+const history =
+document.getElementById("history-list");
+
+liveDiv.innerHTML="";
+history.innerHTML="";
+
+snapshot.docs.forEach((doc,index)=>{
+
+const data = doc.data();
+
+const html = `
+
+<div class="alert-card">
+
+<b>🚨 ${data.message}</b><br>
+
+<small>
+🕒 ${data.time?.toDate().toLocaleString() || "Just now"}
+</small>
+
+</div>
+
+`;
+
+if(index===0)
+liveDiv.innerHTML = html;
+
+else
+history.innerHTML += html;
+
+});
+
+});
+
+}
+
+
+
+/* ---------------- HISTORY ---------------- */
+
+window.toggleHistory = function(){
+
+const panel =
+document.getElementById("history-panel");
+
+const btn =
+document.getElementById("toggleBtn");
+
+const hidden =
+panel.style.display==="none";
+
+panel.style.display =
+hidden ? "block":"none";
+
+btn.innerText =
+hidden ? "❌ Hide History":"📜 Show History";
+
+};
+
+
+
+window.clearHistory = async function(){
+
+if(confirm("Delete all alerts?")){
+
+const snap =
+await getDocs(collection(db,"alerts"));
+
+await Promise.all(
+snap.docs.map(d=>deleteDoc(d.ref))
+);
+
+alert("History cleared");
+
+}
+
+};
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Baby Monitor - Transmitter</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/audio"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/audio@0.8/dist/teachablemachine-audio.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<link rel="stylesheet" href="style.css">
+
+<style>
+
+body{
+font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+text-align:center;
+background:#f0f8ff;
+margin:0;
+padding:20px;
+}
+
+h1{color:#2e6b2e;}
+
+#connection-card{
+background:white;
+padding:20px;
+border-radius:15px;
+box-shadow:0 4px 15px rgba(0,0,0,0.1);
+display:inline-block;
+margin-bottom:20px;
+border:2px solid #2e6b2e;
+}
+
+#sync-code{
+font-size:3rem;
+font-weight:bold;
+color:#2e6b2e;
+letter-spacing:5px;
+margin:10px 0;
+}
+
+button{
+padding:12px 24px;
+margin:10px;
+cursor:pointer;
+border-radius:10px;
+border:none;
+background:#2e6b2e;
+color:white;
+font-weight:bold;
+transition:0.3s;
+}
+
+button:hover{
+background:#245524;
+transform:translateY(-2px);
+}
+
+video{
+margin-top:20px;
+border-radius:15px;
+border:4px solid #2e6b2e;
+background:#000;
+box-shadow:0 8px 20px rgba(0,0,0,0.2);
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="connection-card">
+
+<h3>Connect to Mother Page</h3>
+<p>Enter this code on the parent device:</p>
+
+<div id="sync-code">------</div>
+
+<button onclick="copyCode()" id="copyBtn"
+style="padding:5px 10px;font-size:0.8rem;background:#666;">
+📋 Copy Code
+</button>
+
+</div>
+
+<h1>👶 Baby Monitoring System</h1>
+
+<div class="controls">
+
+<button onclick="goHome()">⬅ Back to Home</button>
+
+<button onclick="startCryDetection()">🎤 Start Cry Detection</button>
+
+<button onclick="startMovement()">📷 Start Movement Detection</button>
+
+<button onclick="startStream()">📡 Start Live Stream</button>
+
+
+
+</div>
+
+<video id="localVideo" autoplay playsinline width="500"></video>
+
+<script src="/socket.io/socket.io.js"></script>
+
+<script type="module">
+
+/* -------------------- FIREBASE -------------------- */
+
+import { getApps, initializeApp }
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+import {
+getFirestore,
+collection,
+doc,
+setDoc,
+addDoc,
+serverTimestamp
+}
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const firebaseConfig = {
+
+apiKey:"AIzaSyAYM35wffavu5oLMMeVTw3Pba5fpFJt86I",
+
+authDomain:"smart-baby-monitoring-21f6e.firebaseapp.com",
+
+projectId:"smart-baby-monitoring-21f6e",
+
+storageBucket:"smart-baby-monitoring-21f6e.firebasestorage.app",
+
+messagingSenderId:"547380042910",
+
+appId:"1:547380042910:web:2731ee41a6c8bb4332ef8f"
+
+};
+
+const app =
+getApps().length === 0
+? initializeApp(firebaseConfig)
+: getApps()[0];
+
+const db = getFirestore(app);
+
+
+/* -------------------- GENERATE CODE -------------------- */
+
+let accessCode = "";
+
+async function setupConnection(){
+
+accessCode = Math.floor(
+100000 + Math.random()*900000
+).toString();
+
+document.getElementById("sync-code").innerText = accessCode;
+
+await setDoc(doc(db,"sessions","current"),{
+
+code:accessCode,
+status:"active",
+timestamp:serverTimestamp()
+
+});
+
+console.log("Code synced:",accessCode);
+
+}
+
+setupConnection();
+
+
+/* -------------------- ALERT SENDER -------------------- */
+
+async function sendAlert(type,message){
+
+await addDoc(collection(db,"alerts"),{
+
+type:type,
+message:message,
+time:serverTimestamp()
+
+});
+
+console.log("Alert sent:",type);
+
+}
+
+
+/* -------------------- CRY DETECTION -------------------- */
+
+let lastCryTime = 0;
+const COOLDOWN = 10000;
+
+window.startCryDetection = async function(){
+
+const stream =
+await navigator.mediaDevices.getUserMedia({audio:true});
+
+const audioContext = new AudioContext();
+
+const mic =
+audioContext.createMediaStreamSource(stream);
+
+const analyser =
+audioContext.createAnalyser();
+
+mic.connect(analyser);
+
+const data =
+new Uint8Array(analyser.frequencyBinCount);
+
+setInterval(()=>{
+
+analyser.getByteFrequencyData(data);
+
+let volume =
+data.reduce((a,b)=>a+b)/data.length;
+
+if(volume>50){
+
+const now = Date.now();
+
+if(now-lastCryTime>COOLDOWN){
+
+sendAlert("cry","Baby is crying!");
+
+lastCryTime = now;
+
+}
+
+}
+
+},1000);
+
+alert("Microphone active!");
+
+};
+
+
+/* -------------------- MOVEMENT DETECTION -------------------- */
+
+let lastFrame=null;
+let lastMoveTime=0;
+
+window.startMovement = async function(){
+
+const video =
+document.getElementById("localVideo");
+
+const stream =
+await navigator.mediaDevices.getUserMedia({video:true});
+
+video.srcObject = stream;
+
+setInterval(()=>{
+
+if(video.videoWidth===0) return;
+
+const canvas = document.createElement("canvas");
+
+canvas.width = video.videoWidth;
+canvas.height = video.videoHeight;
+
+const ctx = canvas.getContext("2d");
+
+ctx.drawImage(video,0,0);
+
+const frame =
+ctx.getImageData(0,0,canvas.width,canvas.height);
+
+if(lastFrame){
+
+let diff = 0;
+
+for(let i=0;i<frame.data.length;i+=4){
+
+diff += Math.abs(
+frame.data[i] - lastFrame.data[i]
+);
+
+}
+
+if(diff>5000000){
+
+const now = Date.now();
+
+if(now-lastMoveTime>COOLDOWN){
+
+sendAlert("movement","Baby movement detected!");
+
+lastMoveTime = now;
+
+}
+
+}
+
+}
+
+lastFrame = frame;
+
+},2000);
+
+};
+
+
+/* -------------------- WEBRTC STREAM -------------------- */
+
+const socket = io();
+
+let peer;
+let stream;
+
+window.startStream = async function(){
+
+stream =
+await navigator.mediaDevices.getUserMedia({
+
+video:true,
+audio:true
+
+});
+
+document.getElementById("localVideo").srcObject = stream;
+
+socket.emit("join-room",accessCode);
+
+peer = new RTCPeerConnection({
+
+iceServers:[
+{urls:"stun:stun.l.google.com:19302"}
+]
+
+});
+
+stream.getTracks().forEach(track=>{
+peer.addTrack(track,stream);
+});
+
+peer.onicecandidate = e=>{
+
+if(e.candidate){
+
+socket.emit("ice-candidate",{
+
+code:accessCode,
+candidate:e.candidate
+
+});
+
+}
+
+};
+
+const offer = await peer.createOffer();
+
+await peer.setLocalDescription(offer);
+
+socket.emit("offer",{
+
+code:accessCode,
+offer:offer
+
+});
+
+socket.on("answer",async answer=>{
+
+await peer.setRemoteDescription(answer);
+
+});
+
+socket.on("ice-candidate",async candidate=>{
+
+await peer.addIceCandidate(candidate);
+
+});
+
+};
+
+
+/* -------------------- OTHER UI -------------------- */
+
+window.goHome = function() {
+    window.location.href = "index.html"; // use the exact file name
+};
+
+window.copyCode = function(){
+
+navigator.clipboard.writeText(accessCode);
+
+const btn=document.getElementById("copyBtn");
+
+btn.innerText="✅ Copied";
+
+setTimeout(()=>{
+
+btn.innerText="📋 Copy Code";
+
+},2000);
+
+};
+
+/* -------------------- TEACHABLE MACHINE CRY DETECTION -------------------- */
+let model, maxPredictions;
+
+// Load the Teachable Machine Audio Model
+async function loadCryModel(){
+    const URL = "https://teachablemachine.withgoogle.com/models/NSw1kr-Re/";
+    const tmModel = await window.tmAudio.load(URL + "model.json", URL + "metadata.json"); // use tmAudio from global scope
+    model = tmModel.model;
+    maxPredictions = tmModel.maxPredictions;
+    console.log("Cry detection model loaded!");
+}
+
+// Start cry detection
+async function startCryReasonDetection(){
+    if(!model) await loadCryModel();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    await model.listen(result=>{
+        const predictions = result.scores.map((score,i)=>({label: result.labels[i], probability: score}));
+        const top = predictions.reduce((a,b)=>a.probability > b.probability ? a : b);
+
+        // Update UI
+        document.getElementById("predictionLabel").innerText = top.label;
+
+        // Send alert if confidence high
+        if(top.probability>0.7){
+            sendAlert("cry", `Baby is ${top.label}!`);
+            socket.emit("cry-reason",{label: top.label, probability: top.probability});
+        }
+    }, {probabilityThreshold:0.7});
+
+    alert("Cry reason detection is active!");
+}
+
+document.getElementById("startCryBtn").addEventListener("click", startCryReasonDetection);
+
+
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,84 @@
+/* Base reset and box sizing */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #a7d8a7, #d8f4d8);
+  margin: 0;
+  padding: 40px 20px;
+  color: #2e6b2e;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  user-select: none;
+  text-align: center;
+}
+
+/* Page Title */
+h1 {
+  font-weight: 700;
+  font-size: 2.5rem;
+  margin-bottom: 40px;
+  letter-spacing: 1.1px;
+}
+
+/* Buttons style */
+button {
+  background-color: #4caf50;
+  border: none;
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 12px 30px;
+  margin: 10px 10px 30px 10px;
+  border-radius: 25px;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.15);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
+  user-select: none;
+  min-width: 180px;
+}
+
+button:hover {
+  background-color: #3a8a3a;
+  box-shadow: 0 10px 25px rgb(0 0 0 / 0.25);
+  transform: translateY(-2px);
+}
+
+button:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.15);
+}
+
+/* Video styling */
+video#video {
+  border-radius: 30px;
+  width: 320px;
+  max-width: 90vw;
+  height: auto;
+  box-shadow: 0 12px 25px rgb(0 0 0 / 0.2);
+  margin-top: 20px;
+  background-color: #e6f0e6;
+  user-select: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  h1 {
+    font-size: 1.8rem;
+    margin-bottom: 30px;
+  }
+
+  button {
+    min-width: 140px;
+    padding: 10px 20px;
+    margin: 8px 6px 25px 6px;
+  }
+
+  video#video {
+    width: 280px;
+  }
+}
